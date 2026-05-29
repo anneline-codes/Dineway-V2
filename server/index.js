@@ -16,6 +16,7 @@ import menuRoutes from './routes/menuRoutes.js';
 import reviewRoutes from './routes/reviewRoutes.js';
 import tableRoutes from './routes/tableRoutes.js';
 import newsletterRoutes from './routes/newsletterRoutes.js';
+import contactRoutes from './routes/contactRoutes.js';
 
 // Import middleware
 import errorHandler from './middleware/errorMiddleware.js';
@@ -72,6 +73,7 @@ app.use('/api/v1/menu', menuRoutes);
 app.use('/api/v1/reviews', reviewRoutes);
 app.use('/api/v1/tables', tableRoutes);
 app.use('/api/v1/newsletter', newsletterRoutes);
+app.use('/api/v1/contact', contactRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
