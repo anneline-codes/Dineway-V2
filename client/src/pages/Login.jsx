@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import { authAPI } from '../services/api';
 import useAuthStore from '../store/authStore';
@@ -14,6 +14,9 @@ const Login = () => {
 
   const { login } = useAuthStore();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const from = location.state?.from?.pathname || '/overview';
 
   const validateForm = () => {
     const newErrors = {};
@@ -38,7 +41,7 @@ const Login = () => {
       const response = await authAPI.login({ email, password });
       login(response.data.data.user, response.data.data.accessToken);
       toast.success('Welcome back!');
-      navigate('/');
+      navigate(from, { replace: true });
     } catch (error) {
       toast.error(error.response?.data?.error || 'Login failed');
       setErrors({ general: error.response?.data?.error || 'Login failed' });
