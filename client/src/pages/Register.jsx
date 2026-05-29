@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Mail, Lock, User, Eye, EyeOff } from 'lucide-react';
 import { authAPI } from '../services/api';
 import useAuthStore from '../store/authStore';
@@ -20,6 +20,9 @@ const Register = () => {
 
   const { login } = useAuthStore();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const from = location.state?.from?.pathname || '/overview';
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -67,7 +70,7 @@ const Register = () => {
       });
       login(response.data.data.user, response.data.data.accessToken);
       toast.success('Account created successfully!');
-      navigate('/');
+      navigate(from, { replace: true });
     } catch (error) {
       toast.error(error.response?.data?.error || 'Registration failed');
       setErrors({ general: error.response?.data?.error || 'Registration failed' });
