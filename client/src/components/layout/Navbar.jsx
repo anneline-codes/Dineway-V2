@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { Menu, X, Moon, Sun, User, LogOut, ChevronDown } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import useAuthStore from '../../store/authStore';
@@ -83,13 +83,19 @@ const Navbar = () => {
           {/* Desktop Nav */}
           <div className="hidden md:flex items-center gap-6">
             {navLinks.map((link) => (
-              <Link
+              <NavLink
                 key={link.to}
                 to={link.to}
-                className="text-text-primary hover:text-gold transition-colors text-sm font-medium"
+                className={({ isActive }) =>
+                  `text-sm font-medium transition-colors ${
+                    isActive
+                      ? 'text-gold border-b-2 border-gold'
+                      : 'text-text-primary hover:text-gold'
+                  }`
+                }
               >
                 {link.label}
-              </Link>
+              </NavLink>
             ))}
           </div>
 
@@ -176,14 +182,20 @@ const Navbar = () => {
         <div className="md:hidden bg-bg-secondary border-t border-border">
           <div className="px-4 py-4 space-y-3">
             {navLinks.map((link) => (
-              <Link
+              <NavLink
                 key={link.to}
                 to={link.to}
-                className="block py-2 text-text-primary hover:text-gold transition-colors"
+                className={({ isActive }) =>
+                  `block py-2 transition-colors ${
+                    isActive
+                      ? 'text-gold border-l-2 border-gold pl-3'
+                      : 'text-text-primary hover:text-gold'
+                  }`
+                }
                 onClick={() => setIsMobileMenuOpen(false)}
               >
                 {link.label}
-              </Link>
+              </NavLink>
             ))}
             <hr className="border-border my-4" />
             {isAuthenticated ? (
