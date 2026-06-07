@@ -15,8 +15,8 @@ router.get('/restaurant/:restaurantId', getRestaurantMenu);
 // Protected routes (Owner or Admin only)
 router.use(protect);
 
-router.post('/', restrictTo('admin', 'customer'), createMenuItem);
-router.put('/:id', restrictTo('admin', 'customer'), updateMenuItem);
-router.delete('/:id', restrictTo('admin', 'customer'), deleteMenuItem);
+router.post('/', restrictTo('admin', 'super_admin'), createMenuItem);
+router.put('/:id', restrictTo('admin', 'super_admin'), updateMenuItem);
+router.delete('/:id', restrictTo('admin', 'super_admin'), deleteMenuItem);
 
 export default router;
