@@ -123,7 +123,9 @@ export const reviewAPI = {
 // Table API
 export const tableAPI = {
   getRestaurant: (restaurantId) => api.get(`/tables/restaurant/${restaurantId}`),
+  getSections: (restaurantId) => api.get(`/tables/sections/${restaurantId}`),
   getAvailable: (params) => api.get('/tables/available', { params }),
+  getAdminMap: (restaurantId) => api.get(`/bookings/tables/${restaurantId}`),
   create: (data) => api.post('/tables', data),
   update: (id, data) => api.put(`/tables/${id}`, data),
   delete: (id) => api.delete(`/tables/${id}`),
