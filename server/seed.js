@@ -29,6 +29,12 @@ const seedData = async () => {
     console.log('👥 Creating users...');
     const users = await User.create([
       {
+        name: 'Super Admin',
+        email: 'superadmin@dineway.com',
+        passwordHash: 'Admin1234!',
+        role: 'super_admin',
+      },
+      {
         name: 'Admin',
         email: 'admin@dineway.com',
         passwordHash: 'Admin1234!',
@@ -40,6 +46,12 @@ const seedData = async () => {
         passwordHash: 'Test1234!',
         role: 'customer',
       },
+      {
+        name: 'M Hotel Manager',
+        email: 'manager@mhotel.com',
+        passwordHash: 'Admin1234!',
+        role: 'restaurant_admin',
+      },
     ]);
     console.log(`✅ Created ${users.length} users`);
 
@@ -50,27 +62,19 @@ const seedData = async () => {
         name: 'M Hotel',
         description: 'An elegant hotel dining experience with panoramic city views',
         category: 'Fine Dining',
-        address: {
-          street: '15 City Heights',
-          city: 'Fine City',
-          country: 'Rwanda',
-        },
+        address: { street: '15 City Heights', city: 'Kigali', country: 'Rwanda' },
         phone: '+250 788 123 456',
         email: 'info@mhotel.com',
         status: 'registered',
         rating: 4.8,
         reviewCount: 1,
-        ownerId: users[0]._id,
+        ownerId: users[3]._id, // M Hotel Manager
       },
       {
         name: 'Chez Lando',
         description: 'Authentic French bistro with hand-crafted dishes',
         category: 'French',
-        address: {
-          street: '7 Rue de Paris',
-          city: 'Fine City',
-          country: 'Rwanda',
-        },
+        address: { street: '7 Rue de Paris', city: 'Kigali', country: 'Rwanda' },
         phone: '+250 788 234 567',
         email: 'info@chezlando.com',
         status: 'registered',
@@ -82,11 +86,7 @@ const seedData = async () => {
         name: 'Onomo Hotel',
         description: 'A fusion of global flavors in a modern setting',
         category: 'Casual',
-        address: {
-          street: '22 International Blvd',
-          city: 'Fine City',
-          country: 'Rwanda',
-        },
+        address: { street: '22 International Blvd', city: 'Kigali', country: 'Rwanda' },
         phone: '+250 788 345 678',
         email: 'info@onomohotel.com',
         status: 'registered',
@@ -98,11 +98,7 @@ const seedData = async () => {
         name: 'Soy Restaurant',
         description: 'Contemporary Asian cuisine with bold, fresh flavors',
         category: 'Asian',
-        address: {
-          street: '88 East Street',
-          city: 'Fine City',
-          country: 'Rwanda',
-        },
+        address: { street: '88 East Street', city: 'Kigali', country: 'Rwanda' },
         phone: '+250 788 456 789',
         email: 'info@soyrestaurant.com',
         status: 'pending',
@@ -114,11 +110,7 @@ const seedData = async () => {
         name: 'Choose Kigali',
         description: 'Authentic local flavors celebrating African heritage',
         category: 'African',
-        address: {
-          street: '5 Kigali Road',
-          city: 'Fine City',
-          country: 'Rwanda',
-        },
+        address: { street: '5 Kigali Road', city: 'Kigali', country: 'Rwanda' },
         phone: '+250 788 567 890',
         email: 'info@choosekigali.com',
         status: 'registered',
@@ -130,11 +122,7 @@ const seedData = async () => {
         name: 'Burger Planet',
         description: 'Gourmet burgers and comfort food done right',
         category: 'Fast Food',
-        address: {
-          street: '33 Main Street',
-          city: 'Fine City',
-          country: 'Rwanda',
-        },
+        address: { street: '33 Main Street', city: 'Kigali', country: 'Rwanda' },
         phone: '+250 788 678 901',
         email: 'info@burgerplanet.com',
         status: 'pending',
@@ -144,6 +132,10 @@ const seedData = async () => {
       },
     ]);
     console.log(`✅ Created ${restaurants.length} restaurants`);
+
+    // Link M Hotel Manager to M Hotel
+    await User.findByIdAndUpdate(users[3]._id, { restaurantId: restaurants[0]._id });
+    console.log('✅ Linked M Hotel Manager to M Hotel');
 
     // Create Tables (2 per restaurant)
     console.log('🪑 Creating tables...');
@@ -316,22 +308,25 @@ const seedData = async () => {
     console.log('⭐ Creating reviews...');
     const reviews = await Review.create([
       {
-        userId: users[1]._id,
+        userId: users[2]._id, // Cynthia
         restaurantId: restaurants[1]._id,
         rating: 5,
         comment: 'Absolutely unforgettable. Every dish was art, every moment felt luxurious.',
+        status: 'approved',
       },
       {
-        userId: users[1]._id,
+        userId: users[2]._id, // Cynthia
         restaurantId: restaurants[0]._id,
         rating: 5,
         comment: 'The ambiance and service exceeded every expectation I had.',
+        status: 'approved',
       },
       {
-        userId: users[1]._id,
+        userId: users[2]._id, // Cynthia
         restaurantId: restaurants[2]._id,
         rating: 4,
-        comment: 'A culinary journey unlike anything I\'ve experienced before.',
+        comment: "A culinary journey unlike anything I've experienced before.",
+        status: 'approved',
       },
     ]);
     console.log(`✅ Created ${reviews.length} reviews`);
@@ -343,20 +338,21 @@ const seedData = async () => {
     const threeDaysLater = new Date();
     threeDaysLater.setDate(threeDaysLater.getDate() + 3);
 
+    const allTables = await Table.find();
     const reservations = await Reservation.create([
       {
-        userId: users[1]._id,
+        userId: users[2]._id, // Cynthia
         restaurantId: restaurants[1]._id, // Chez Lando
-        tableId: tables[2]._id, // Table 1
+        tableId: allTables.find(t => t.restaurantId.toString() === restaurants[1]._id.toString())._id,
         date: tomorrow,
         timeSlot: '19:00',
         guestCount: 2,
         status: 'confirmed',
       },
       {
-        userId: users[1]._id,
+        userId: users[2]._id, // Cynthia
         restaurantId: restaurants[0]._id, // M Hotel
-        tableId: tables[1]._id, // Table 2
+        tableId: allTables.find(t => t.restaurantId.toString() === restaurants[0]._id.toString() && t.capacity >= 4)._id,
         date: threeDaysLater,
         timeSlot: '20:00',
         guestCount: 4,
@@ -365,14 +361,13 @@ const seedData = async () => {
     ]);
     console.log(`✅ Created ${reservations.length} reservations`);
 
-    // Summary
     console.log('\n✅ Seed complete!');
-    console.log(`   ${users.length} users`);
-    console.log(`   ${restaurants.length} restaurants`);
-    console.log(`   ${tables.length} tables`);
-    console.log(`   ${menuItems.length} menu items`);
-    console.log(`   ${reviews.length} reviews`);
-    console.log(`   ${reservations.length} reservations`);
+    console.log('─────────────────────────────────────────');
+    console.log('  Super Admin:       superadmin@dineway.com / Admin1234!  → http://localhost:5175');
+    console.log('  Restaurant Admin:  manager@mhotel.com    / Admin1234!  → http://localhost:5174');
+    console.log('  Customer:          cynthia@gmail.com     / Test1234!   → http://localhost:5173');
+    console.log('─────────────────────────────────────────');
+    console.log(`  ${restaurants.length} restaurants | ${allTables.length} tables | ${reviews.length} reviews | ${reservations.length} reservations`);
 
     // Disconnect
     await mongoose.disconnect();
