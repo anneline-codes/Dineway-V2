@@ -2,6 +2,7 @@ import express from 'express';
 import {
   getRestaurantTables,
   getAvailableTables,
+  getRestaurantSections,
   createTable,
   updateTable,
   deleteTable,
@@ -12,13 +13,13 @@ const router = express.Router();
 
 // Public routes
 router.get('/restaurant/:restaurantId', getRestaurantTables);
+router.get('/sections/:restaurantId', getRestaurantSections);
 router.get('/available', getAvailableTables);
 
-// Protected routes (Admin only)
+// Protected routes
 router.use(protect);
-
-router.post('/', restrictTo('admin'), createTable);
-router.put('/:id', restrictTo('admin'), updateTable);
-router.delete('/:id', restrictTo('admin'), deleteTable);
+router.post('/', createTable);
+router.put('/:id', updateTable);
+router.delete('/:id', deleteTable);
 
 export default router;
