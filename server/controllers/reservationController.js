@@ -2,14 +2,25 @@ import Reservation from '../models/Reservation.js';
 import Table from '../models/Table.js';
 import Restaurant from '../models/Restaurant.js';
 import asyncHandler from 'express-async-handler';
+import { io } from '../index.js';
 
 // @desc    Create a new reservation
 // @route   POST /api/v1/reservations
 // @access  Private
 export const createReservation = asyncHandler(async (req, res) => {
-  const { restaurantId, tableId, date, timeSlot, guestCount, notes } = req.body;
+  const {
+    restaurantId,
+    tableId,
+    date,
+    timeSlot,
+    startTime,
+    endTime,
+    guestCount,
+    guestName,
+    guestPhone,
+    notes,
+  } = req.body;
 
-  // Check if table exists and belongs to restaurant
   const table = await Table.findOne({ _id: tableId, restaurantId });
   if (!table) {
     return res.status(404).json({
@@ -18,7 +29,6 @@ export const createReservation = asyncHandler(async (req, res) => {
     });
   }
 
-  // Check if table can accommodate guests
   if (table.capacity < guestCount) {
     return res.status(400).json({
       success: false,
@@ -26,14 +36,7 @@ export const createReservation = asyncHandler(async (req, res) => {
     });
   }
 
-  // Check if table is available
-  const isAvailable = await Reservation.checkAvailability(
-    restaurantId,
-    date,
-    timeSlot,
-    tableId
-  );
-
+  const isAvailable = await Reservation.checkAvailability(restaurantId, date, timeSlot, tableId);
   if (!isAvailable) {
     return res.status(400).json({
       success: false,
@@ -41,24 +44,45 @@ export const createReservation = asyncHandler(async (req, res) => {
     });
   }
 
-  // Create reservation
   const reservation = await Reservation.create({
     userId: req.user._id,
     restaurantId,
     tableId,
     date,
     timeSlot,
+    startTime: startTime || timeSlot,
+    endTime: endTime || '',
     guestCount,
+    guestName: guestName || req.user.name || '',
+    guestPhone: guestPhone || '',
     notes: notes || '',
+    status: 'confirmed',
   });
 
-  // Populate restaurant info
   await reservation.populate('restaurantId', 'name address');
+  await reservation.populate('userId', 'name');
+  await reservation.populate('tableId', 'tableNumber capacity section');
 
-  res.status(201).json({
-    success: true,
-    data: reservation,
-  });
+  // Real-time: notify restaurant admin
+  const payload = {
+    _id: reservation._id,
+    bookingId: reservation.bookingId,
+    clientId: reservation.userId,
+    venueId: reservation.restaurantId,
+    tableId: reservation.tableId,
+    date: reservation.date,
+    time: reservation.timeSlot,
+    startTime: reservation.startTime,
+    endTime: reservation.endTime,
+    guests: reservation.guestCount,
+    guestName: reservation.guestName,
+    status: reservation.status,
+  };
+
+  io.to(`restaurant:${restaurantId}`).emit('booking:new', { booking: payload });
+  io.to('superadmin').emit('booking:new', { booking: payload });
+
+  res.status(201).json({ success: true, data: reservation });
 });
 
 // @desc    Get user's reservations
@@ -67,18 +91,15 @@ export const createReservation = asyncHandler(async (req, res) => {
 export const getMyReservations = asyncHandler(async (req, res) => {
   const { status, page = 1, limit = 10 } = req.query;
 
-  let query = { userId: req.user._id };
-
-  if (status) {
-    query.status = status;
-  }
+  const query = { userId: req.user._id };
+  if (status) query.status = status;
 
   const reservations = await Reservation.find(query)
     .sort({ createdAt: -1 })
     .skip((page - 1) * limit)
     .limit(parseInt(limit))
     .populate('restaurantId', 'name address coverImage')
-    .populate('tableId', 'tableNumber capacity');
+    .populate('tableId', 'tableNumber capacity section');
 
   const total = await Reservation.countDocuments(query);
 
@@ -99,13 +120,9 @@ export const getRestaurantReservations = asyncHandler(async (req, res) => {
   const { status, date, page = 1, limit = 20 } = req.query;
   const { restaurantId } = req.params;
 
-  // Check if user owns the restaurant or is admin
   const restaurant = await Restaurant.findOne({ _id: restaurantId });
   if (!restaurant) {
-    return res.status(404).json({
-      success: false,
-      error: 'Restaurant not found',
-    });
+    return res.status(404).json({ success: false, error: 'Restaurant not found' });
   }
 
   if (
@@ -118,22 +135,16 @@ export const getRestaurantReservations = asyncHandler(async (req, res) => {
     });
   }
 
-  let query = { restaurantId };
-
-  if (status) {
-    query.status = status;
-  }
-
-  if (date) {
-    query.date = new Date(date);
-  }
+  const query = { restaurantId };
+  if (status) query.status = status;
+  if (date) query.date = new Date(date);
 
   const reservations = await Reservation.find(query)
     .sort({ createdAt: -1 })
     .skip((page - 1) * limit)
     .limit(parseInt(limit))
     .populate('userId', 'name email')
-    .populate('tableId', 'tableNumber capacity');
+    .populate('tableId', 'tableNumber capacity section');
 
   const total = await Reservation.countDocuments(query);
 
@@ -154,27 +165,20 @@ export const updateReservationStatus = asyncHandler(async (req, res) => {
   const { status } = req.body;
   const { id } = req.params;
 
-  if (!['pending', 'confirmed', 'cancelled'].includes(status)) {
-    return res.status(400).json({
-      success: false,
-      error: 'Invalid status',
-    });
+  if (!['pending', 'confirmed', 'cancelled', 'completed'].includes(status)) {
+    return res.status(400).json({ success: false, error: 'Invalid status' });
   }
 
   const reservation = await Reservation.findById(id).populate('restaurantId');
-
   if (!reservation) {
-    return res.status(404).json({
-      success: false,
-      error: 'Reservation not found',
-    });
+    return res.status(404).json({ success: false, error: 'Reservation not found' });
   }
 
-  // Check ownership or admin
   const restaurant = reservation.restaurantId;
+  const allowedRoles = ['admin', 'restaurant_admin', 'restaurant_manager'];
   if (
     restaurant.ownerId.toString() !== req.user._id.toString() &&
-    req.user.role !== 'admin'
+    !allowedRoles.includes(req.user.role)
   ) {
     return res.status(403).json({
       success: false,
@@ -185,10 +189,7 @@ export const updateReservationStatus = asyncHandler(async (req, res) => {
   reservation.status = status;
   await reservation.save();
 
-  res.status(200).json({
-    success: true,
-    data: reservation,
-  });
+  res.status(200).json({ success: true, data: reservation });
 });
 
 // @desc    Cancel user's own reservation
@@ -198,15 +199,10 @@ export const cancelMyReservation = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
   const reservation = await Reservation.findById(id);
-
   if (!reservation) {
-    return res.status(404).json({
-      success: false,
-      error: 'Reservation not found',
-    });
+    return res.status(404).json({ success: false, error: 'Reservation not found' });
   }
 
-  // Check ownership
   if (reservation.userId.toString() !== req.user._id.toString()) {
     return res.status(403).json({
       success: false,
@@ -214,19 +210,8 @@ export const cancelMyReservation = asyncHandler(async (req, res) => {
     });
   }
 
-  // Only pending reservations can be cancelled by users
-  if (reservation.status === 'confirmed') {
-    return res.status(400).json({
-      success: false,
-      error: 'Confirmed reservations cannot be cancelled by users. Please contact the restaurant.',
-    });
-  }
-
   reservation.status = 'cancelled';
   await reservation.save();
 
-  res.status(200).json({
-    success: true,
-    data: reservation,
-  });
+  res.status(200).json({ success: true, data: reservation });
 });
