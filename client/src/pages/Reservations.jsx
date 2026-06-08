@@ -1,629 +1,676 @@
-import { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { format, addDays, isBefore, startOfDay } from 'date-fns';
-import { ChevronLeft, ChevronRight, Users, Check, Calendar, Clock, UtensilsCrossed, AlertCircle } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import {
+  ChevronLeft, ChevronRight, CalendarDays, Check,
+  Calendar, Clock, Armchair, Minus, Plus,
+} from 'lucide-react';
 import { restaurantAPI, tableAPI, reservationAPI } from '../services/api';
+import useAuthStore from '../store/authStore';
 import Spinner from '../components/ui/Spinner';
-import Modal from '../components/ui/Modal';
 import toast from 'react-hot-toast';
+import {
+  format, addDays, isBefore, startOfDay,
+  startOfMonth, endOfMonth, eachDayOfInterval,
+  getDay, addMonths, subMonths,
+} from 'date-fns';
 
+/* ─── Design tokens ──────────────────────────────────────── */
+const T = {
+  bg: '#0D0D0D',
+  card: '#1A1A1A',
+  input: '#222222',
+  gold: '#C9A84C',
+  white: '#FFFFFF',
+  muted: '#888888',
+  border: '#2A2A2A',
+  green: '#22C55E',
+};
+
+/* ─── Step progress indicator ────────────────────────────── */
+function StepIndicator({ step }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0 }}>
+      {[1, 2, 3, 4].map((s, i) => (
+        <div key={s} style={{ display: 'flex', alignItems: 'center' }}>
+          <div style={{
+            width: 40, height: 40, borderRadius: '50%',
+            background: step === s ? T.gold : T.card,
+            border: `2px solid ${step === s ? T.gold : '#555'}`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontWeight: 700, fontSize: 16,
+            color: step === s ? '#000' : T.white,
+            flexShrink: 0,
+          }}>{s}</div>
+          {i < 3 && (
+            <div style={{ width: 56, height: 2, background: T.border, flexShrink: 0 }} />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ─── Calendar ───────────────────────────────────────────── */
+function CalendarPicker({ selected, onSelect }) {
+  const [viewDate, setViewDate] = useState(selected ? new Date(selected) : new Date());
+  const today = startOfDay(new Date());
+  const maxDate = addDays(today, 90);
+
+  const firstDay = startOfMonth(viewDate);
+  const lastDay = endOfMonth(viewDate);
+  const days = eachDayOfInterval({ start: firstDay, end: lastDay });
+
+  // Pad with empty days for the starting weekday
+  const startPad = getDay(firstDay); // 0=Sun
+  const paddedDays = [...Array(startPad).fill(null), ...days];
+
+  const weekLabels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+  return (
+    <div style={{ background: T.card, borderRadius: 12, padding: 16, flex: 1, minWidth: 260 }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <button
+          onClick={() => setViewDate(v => subMonths(v, 1))}
+          style={{ background: 'none', border: 'none', color: T.muted, cursor: 'pointer', fontSize: 18, padding: '4px 8px' }}
+        >‹</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ color: T.gold, fontWeight: 700, fontSize: 15 }}>
+            {format(viewDate, 'MMMM yyyy')}
+          </span>
+          <CalendarDays size={16} color={T.muted} />
+        </div>
+        <button
+          onClick={() => setViewDate(v => addMonths(v, 1))}
+          style={{ background: 'none', border: 'none', color: T.muted, cursor: 'pointer', fontSize: 18, padding: '4px 8px' }}
+        >›</button>
+      </div>
+
+      {/* Day labels */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, marginBottom: 4 }}>
+        {weekLabels.map((d, i) => (
+          <div key={i} style={{ textAlign: 'center', fontSize: 12, color: T.muted, padding: '4px 0' }}>{d}</div>
+        ))}
+      </div>
+
+      {/* Days */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>
+        {paddedDays.map((day, i) => {
+          if (!day) return <div key={`pad-${i}`} />;
+          const isPast = isBefore(day, today);
+          const isFuture = isBefore(maxDate, day);
+          const isDisabled = isPast || isFuture;
+          const isSelected = selected && format(day, 'yyyy-MM-dd') === selected;
+
+          return (
+            <button
+              key={day.toISOString()}
+              disabled={isDisabled}
+              onClick={() => onSelect(format(day, 'yyyy-MM-dd'))}
+              style={{
+                width: '100%', aspectRatio: '1', borderRadius: '50%',
+                background: isSelected ? T.gold : 'transparent',
+                border: 'none', cursor: isDisabled ? 'not-allowed' : 'pointer',
+                color: isDisabled ? '#444' : isSelected ? '#000' : T.white,
+                fontWeight: isSelected ? 700 : 400,
+                fontSize: 13,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                transition: 'background 0.15s',
+              }}
+              onMouseEnter={e => { if (!isDisabled && !isSelected) e.currentTarget.style.background = '#333'; }}
+              onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
+            >
+              {format(day, 'd')}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Time slots ─────────────────────────────────────────── */
+function TimeSlotList({ slots, selected, onSelect }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 130 }}>
+      {slots.map(slot => {
+        const isSelected = selected === slot;
+        return (
+          <button
+            key={slot}
+            onClick={() => onSelect(slot)}
+            style={{
+              background: isSelected ? T.gold : T.card,
+              border: `1px solid ${isSelected ? T.gold : T.border}`,
+              borderRadius: 50, padding: '10px 20px',
+              color: isSelected ? '#000' : T.white,
+              fontWeight: isSelected ? 700 : 400,
+              fontSize: 14, cursor: 'pointer',
+              transition: 'all 0.15s',
+              whiteSpace: 'nowrap',
+            }}
+            onMouseEnter={e => { if (!isSelected) e.currentTarget.style.borderColor = T.gold; }}
+            onMouseLeave={e => { if (!isSelected) e.currentTarget.style.borderColor = T.border; }}
+          >
+            {slot}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ─── Helpers ────────────────────────────────────────────── */
+function generateTimeSlots(openingHours) {
+  // If we have opening hours for today, generate 1-hour slots
+  if (openingHours) {
+    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const todayKey = days[new Date().getDay()];
+    const todayHours = openingHours[todayKey];
+    if (todayHours?.isOpen && todayHours.open && todayHours.close) {
+      const slots = [];
+      let [h] = todayHours.open.split(':').map(Number);
+      const [closeH] = todayHours.close.split(':').map(Number);
+      while (h < closeH) {
+        const label = h < 12
+          ? `${String(h).padStart(2, '0')}:00AM`
+          : h === 12
+          ? '12:00PM'
+          : `${String(h - 12).padStart(2, '0')}:00PM`;
+        slots.push(label);
+        h++;
+      }
+      return slots;
+    }
+  }
+  // Default slots
+  return ['09:00AM', '10:00AM', '11:00AM', '12:00PM', '01:00PM', '02:00PM', '03:00PM', '06:00PM', '07:00PM', '08:00PM'];
+}
+
+function slotToTime24(slot) {
+  // Convert "12:00PM" -> "12:00"
+  if (!slot) return '';
+  const match = slot.match(/^(\d+):(\d+)(AM|PM)$/i);
+  if (!match) return slot;
+  let h = parseInt(match[1]);
+  const m = match[2];
+  const period = match[3].toUpperCase();
+  if (period === 'AM' && h === 12) h = 0;
+  if (period === 'PM' && h !== 12) h += 12;
+  return `${String(h).padStart(2, '0')}:${m}`;
+}
+
+function addHour(time24) {
+  if (!time24) return '';
+  const [h, m] = time24.split(':').map(Number);
+  const newH = h + 2; // 2-hour slot
+  if (newH >= 24) return '';
+  return `${String(newH).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+function formatDisplayTime(time24) {
+  if (!time24) return '';
+  const [h, m] = time24.split(':').map(Number);
+  const period = h < 12 ? 'AM' : 'PM';
+  const displayH = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `${displayH}:${String(m).padStart(2, '0')}${period}`;
+}
+
+/* ─── Main Reservations Page ─────────────────────────────── */
 const Reservations = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const { user } = useAuthStore();
+
   const [step, setStep] = useState(1);
   const [restaurants, setRestaurants] = useState([]);
+  const [sections, setSections] = useState([]);
   const [tables, setTables] = useState([]);
-  const [isLoadingRestaurants, setIsLoadingRestaurants] = useState(false);
-  const [isLoadingTables, setIsLoadingTables] = useState(false);
-  const [isCreating, setIsCreating] = useState(false);
-  const [isSuccess, setIsSuccess] = useState(false);
+  const [loadingRestaurants, setLoadingRestaurants] = useState(true);
+  const [loadingTables, setLoadingTables] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [createdReservation, setCreatedReservation] = useState(null);
 
-  const [formData, setFormData] = useState({
-    restaurantId: '',
-    date: format(new Date(), 'yyyy-MM-dd'),
-    timeSlot: '',
-    guestCount: 2,
+  const preselectedRestaurant = searchParams.get('restaurantId') || '';
+
+  const [form, setForm] = useState({
+    restaurantId: preselectedRestaurant,
+    date: '',
+    timeSlot: '',  // display slot e.g. "12:00PM"
+    section: '',
     tableId: '',
+    name: user?.name || '',
+    phone: user?.phone || '',
+    guests: 2,
     notes: '',
   });
 
-  const [errors, setErrors] = useState({});
+  const selectedRestaurant = restaurants.find(r => r._id === form.restaurantId);
+  const selectedTable = tables.find(t => t._id === form.tableId);
+  const timeSlots = generateTimeSlots(selectedRestaurant?.openingHours);
 
-  // Lunch slots: 11:00 - 13:30 (30min intervals)
-  const lunchSlots = ['11:00', '11:30', '12:00', '12:30', '13:00', '13:30'];
-  // Dinner slots: 18:00 - 21:00 (30min intervals)
-  const dinnerSlots = ['18:00', '18:30', '19:00', '19:30', '20:00', '20:30', '21:00'];
-
-  // Minimum date is today
-  const minDate = format(new Date(), 'yyyy-MM-dd');
-  // Maximum date is 30 days from now
-  const maxDate = format(addDays(new Date(), 30), 'yyyy-MM-dd');
-
-  // Fetch restaurants
+  // Load restaurants
   useEffect(() => {
-    const fetchRestaurants = async () => {
-      setIsLoadingRestaurants(true);
-      try {
-        const response = await restaurantAPI.getAll({ status: 'registered' });
-        setRestaurants(response.data.data);
-      } catch (error) {
-        toast.error('Failed to load restaurants');
-      } finally {
-        setIsLoadingRestaurants(false);
-      }
-    };
-    fetchRestaurants();
+    restaurantAPI.getAll({ status: 'registered' })
+      .then(r => setRestaurants(r.data.data || []))
+      .catch(() => toast.error('Failed to load restaurants'))
+      .finally(() => setLoadingRestaurants(false));
   }, []);
 
-  // Fetch available tables when restaurant, date, and time are selected
+  // Load sections when restaurant changes
   useEffect(() => {
-    if (formData.restaurantId && formData.date && formData.timeSlot) {
-      fetchAvailableTables();
-    } else {
-      setTables([]);
-    }
-  }, [formData.restaurantId, formData.date, formData.timeSlot]);
+    if (!form.restaurantId) return;
+    tableAPI.getSections(form.restaurantId)
+      .then(r => {
+        const secs = r.data.data || [];
+        setSections(secs);
+        if (secs.length > 0) setForm(f => ({ ...f, section: secs[0] }));
+      })
+      .catch(() => {});
+  }, [form.restaurantId]);
 
-  const fetchAvailableTables = async () => {
-    setIsLoadingTables(true);
+  // Load available tables when date/time/restaurant/section changes
+  const fetchTables = useCallback(async () => {
+    if (!form.restaurantId || !form.date || !form.timeSlot) {
+      setTables([]);
+      return;
+    }
+    setLoadingTables(true);
     try {
-      const response = await tableAPI.getAvailable({
-        restaurantId: formData.restaurantId,
-        date: formData.date,
-        timeSlot: formData.timeSlot,
-      });
-      setTables(response.data.data);
-      setFormData(prev => ({ ...prev, tableId: '' }));
-    } catch (error) {
+      const time24 = slotToTime24(form.timeSlot);
+      const params = { restaurantId: form.restaurantId, date: form.date, timeSlot: time24 };
+      if (form.section) params.section = form.section;
+      const r = await tableAPI.getAvailable(params);
+      setTables(r.data.data || []);
+    } catch {
       toast.error('Failed to load available tables');
       setTables([]);
     } finally {
-      setIsLoadingTables(false);
+      setLoadingTables(false);
     }
-  };
+  }, [form.restaurantId, form.date, form.timeSlot, form.section]);
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-    setErrors(prev => ({ ...prev, [name]: '' }));
-  };
-
-  const handleGuestCount = (delta) => {
-    const newCount = Math.min(12, Math.max(1, formData.guestCount + delta));
-    setFormData(prev => ({ ...prev, guestCount: newCount }));
-  };
-
-  const validateStep1 = () => {
-    const newErrors = {};
-    if (!formData.restaurantId) newErrors.restaurantId = 'Please select a restaurant';
-    if (!formData.date) newErrors.date = 'Please select a date';
-    if (!formData.timeSlot) newErrors.timeSlot = 'Please select a time slot';
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const validateStep2 = () => {
-    const newErrors = {};
-    if (!formData.tableId) newErrors.tableId = 'Please select a table';
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleNext = () => {
-    if (step === 1 && validateStep1()) {
-      setStep(2);
-    } else if (step === 2 && validateStep2()) {
-      setStep(3);
-    }
-  };
-
-  const handleBack = () => {
-    if (step > 1) setStep(step - 1);
-  };
+  useEffect(() => { fetchTables(); }, [fetchTables]);
 
   const handleSubmit = async () => {
-    setIsCreating(true);
+    setSubmitting(true);
     try {
-      const response = await reservationAPI.create({
-        restaurantId: formData.restaurantId,
-        tableId: formData.tableId,
-        date: formData.date,
-        timeSlot: formData.timeSlot,
-        guestCount: formData.guestCount,
-        notes: formData.notes,
+      const time24 = slotToTime24(form.timeSlot);
+      const endTime24 = addHour(time24);
+      const res = await reservationAPI.create({
+        restaurantId: form.restaurantId,
+        tableId: form.tableId,
+        date: form.date,
+        timeSlot: time24,
+        startTime: time24,
+        endTime: endTime24,
+        guestCount: form.guests,
+        guestName: form.name,
+        guestPhone: form.phone,
+        notes: form.notes,
       });
-      setCreatedReservation(response.data.data);
-      setIsSuccess(true);
-    } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to create reservation');
+      setCreatedReservation(res.data.data);
+      setStep(4);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to create reservation');
     } finally {
-      setIsCreating(false);
+      setSubmitting(false);
     }
   };
 
-  const selectedRestaurant = restaurants.find(r => r._id === formData.restaurantId);
-  const selectedTable = tables.find(t => t._id === formData.tableId);
+  /* ── Styles ── */
+  const containerStyle = {
+    minHeight: '100vh',
+    background: T.bg,
+    paddingTop: 80,
+    fontFamily: 'Inter, system-ui, sans-serif',
+  };
 
-  if (isSuccess && createdReservation) {
-    return (
-      <div className="min-h-screen pt-24 px-4 bg-bg-primary">
-        <div className="max-w-2xl mx-auto text-center">
-          <div className="mb-8">
-            <div className="w-20 h-20 mx-auto bg-success/20 rounded-full flex items-center justify-center">
-              <Check className="text-success" size={40} />
-            </div>
-          </div>
-          <h1 className="text-4xl font-serif font-bold text-text-primary mb-4">
-            Reservation Confirmed!
-          </h1>
-          <p className="text-lg text-text-muted mb-8">
-            Your table has been booked successfully.
-          </p>
+  const cardStyle = {
+    background: T.card,
+    borderRadius: 12,
+    padding: 28,
+    maxWidth: 560,
+    margin: '0 auto',
+  };
 
-          <div className="bg-bg-secondary border border-border rounded-lg p-8 mb-8 text-left">
-            <h2 className="text-xl font-serif font-bold text-gold mb-6">
-              Booking Details
-            </h2>
-            <div className="space-y-4">
-              <div className="flex justify-between">
-                <span className="text-text-muted">Restaurant:</span>
-                <span className="text-text-primary font-medium">
-                  {selectedRestaurant?.name}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-text-muted">Date:</span>
-                <span className="text-text-primary">
-                  {format(new Date(formData.date), 'EEEE, MMMM d yyyy')}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-text-muted">Time:</span>
-                <span className="text-text-primary">{formData.timeSlot}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-text-muted">Guests:</span>
-                <span className="text-text-primary">{formData.guestCount} people</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-text-muted">Table:</span>
-                <span className="text-text-primary">Table {selectedTable?.tableNumber}</span>
-              </div>
-              {formData.notes && (
-                <div className="pt-4 border-t border-border">
-                  <span className="text-text-muted">Notes:</span>
-                  <p className="text-text-primary mt-1 italic">{formData.notes}</p>
-                </div>
-              )}
-            </div>
-          </div>
+  const inputStyle = {
+    width: '100%',
+    background: T.input,
+    border: `1px solid ${T.border}`,
+    borderRadius: 8,
+    padding: '12px 16px',
+    color: T.white,
+    fontSize: 15,
+    outline: 'none',
+    boxSizing: 'border-box',
+    fontFamily: 'inherit',
+  };
 
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <button
-              onClick={() => navigate('/reservations/my')}
-              className="px-8 py-4 bg-gold text-bg-primary font-semibold rounded-md hover:bg-gold-hover transition-colors"
-            >
-              View My Reservations
-            </button>
-            <button
-              onClick={() => navigate('/')}
-              className="px-8 py-4 border-2 border-gold text-gold font-semibold rounded-md hover:bg-gold hover:text-bg-primary transition-colors"
-            >
-              Back to Home
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const goldBtn = {
+    width: '100%',
+    background: T.gold,
+    border: 'none',
+    borderRadius: 50,
+    padding: '14px 0',
+    color: '#000',
+    fontWeight: 700,
+    fontSize: 16,
+    cursor: 'pointer',
+    marginTop: 20,
+    fontFamily: 'inherit',
+    transition: 'opacity 0.15s',
+  };
+
+  const labelStyle = { color: T.muted, fontSize: 13, marginBottom: 6, display: 'block' };
 
   return (
-    <div className="min-h-screen bg-bg-primary">
-      {/* Page Header */}
-      <section className="pt-24 pb-8 px-4">
-        <div className="max-w-4xl mx-auto">
-          <h1 className="text-4xl font-serif font-bold text-gold mb-2">
-            Make a Reservation
+    <div style={containerStyle}>
+      <div style={{ maxWidth: 600, margin: '0 auto', padding: '0 16px 60px' }}>
+
+        {/* Page title row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+          <button
+            onClick={() => step > 1 && step < 4 ? setStep(s => s - 1) : navigate(-1)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: T.white, display: 'flex', alignItems: 'center' }}
+          >
+            <ChevronLeft size={22} color={T.white} />
+          </button>
+          <h1 style={{ color: T.white, fontSize: 20, fontWeight: 700, margin: 0 }}>
+            {step === 4 ? 'Reservation Confirmed' : 'New Reservation'}
           </h1>
-          <p className="text-text-muted">
-            Book your table for an unforgettable dining experience
-          </p>
         </div>
-      </section>
 
-      {/* Progress Stepper */}
-      <section className="py-8 px-4 bg-bg-secondary">
-        <div className="max-w-4xl mx-auto">
-          <div className="flex items-center justify-center">
-            {[1, 2, 3].map((s) => (
-              <div key={s} className="flex items-center">
-                <div
-                  className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold transition-colors ${
-                    step >= s
-                      ? 'bg-gold text-bg-primary'
-                      : 'bg-bg-primary border border-border text-text-muted'
-                  }`}
-                >
-                  {s}
-                </div>
-                {s < 3 && (
-                  <div
-                    className={`w-20 md:w-32 h-1 transition-colors ${
-                      step > s ? 'bg-gold' : 'bg-border'
-                    }`}
-                  />
-                )}
-              </div>
-            ))}
+        {/* Card */}
+        <div style={cardStyle}>
+          {/* Step indicator */}
+          <div style={{ marginBottom: 24 }}>
+            <StepIndicator step={step} />
           </div>
-          <div className="flex justify-center mt-4">
-            <div className="flex gap-16 text-sm text-text-muted">
-              <span className={step >= 1 ? 'text-gold' : ''}>Details</span>
-              <span className={step >= 2 ? 'text-gold' : ''}>Table</span>
-              <span className={step >= 3 ? 'text-gold' : ''}>Confirm</span>
-            </div>
-          </div>
-        </div>
-      </section>
 
-      {/* Form Content */}
-      <section className="py-12 px-4">
-        <div className="max-w-4xl mx-auto">
-          {/* Step 1: Restaurant & Date */}
+          {/* ── STEP 1: Date & Time ── */}
           {step === 1 && (
-            <div className="bg-bg-secondary border border-border rounded-lg p-8">
-              <h2 className="text-2xl font-serif font-bold text-text-primary mb-6">
-                Choose Restaurant & Date
-              </h2>
-
-              <div className="space-y-6">
-                {/* Restaurant Selector */}
-                <div>
-                  <label className="block text-sm text-text-muted mb-2">
-                    Restaurant *
-                  </label>
-                  <select
-                    name="restaurantId"
-                    value={formData.restaurantId}
-                    onChange={handleInputChange}
-                    className={`w-full bg-bg-primary border rounded-md px-4 py-3 text-text-primary focus:border-gold focus:ring-1 focus:ring-gold-light outline-none ${
-                      errors.restaurantId ? 'border-error' : 'border-border'
-                    }`}
-                  >
-                    <option value="">Select a restaurant...</option>
-                    {isLoadingRestaurants ? (
-                      <option>Loading...</option>
-                    ) : (
-                      restaurants.map((restaurant) => (
-                        <option key={restaurant._id} value={restaurant._id}>
-                          {restaurant.name} - {restaurant.category}
-                        </option>
-                      ))
-                    )}
-                  </select>
-                  {errors.restaurantId && (
-                    <p className="mt-1 text-sm text-error">{errors.restaurantId}</p>
-                  )}
-                </div>
-
-                {/* Date Picker */}
-                <div>
-                  <label className="block text-sm text-text-muted mb-2">
-                    Date *
-                  </label>
-                  <input
-                    type="date"
-                    name="date"
-                    value={formData.date}
-                    onChange={handleInputChange}
-                    min={minDate}
-                    max={maxDate}
-                    className={`w-full bg-bg-primary border rounded-md px-4 py-3 text-text-primary focus:border-gold focus:ring-1 focus:ring-gold-light outline-none ${
-                      errors.date ? 'border-error' : 'border-border'
-                    }`}
-                  />
-                  {errors.date && (
-                    <p className="mt-1 text-sm text-error">{errors.date}</p>
-                  )}
-                </div>
-
-                {/* Time Slot Selection */}
-                <div>
-                  <label className="block text-sm text-text-muted mb-2">
-                    Time Slot *
-                  </label>
-                  <div className="space-y-4">
-                    <div>
-                      <p className="text-sm text-text-muted mb-2">Lunch (11:00 AM - 1:30 PM)</p>
-                      <div className="flex flex-wrap gap-2">
-                        {lunchSlots.map((slot) => (
-                          <button
-                            key={slot}
-                            type="button"
-                            onClick={() => setFormData(prev => ({ ...prev, timeSlot: slot }))}
-                            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                              formData.timeSlot === slot
-                                ? 'bg-gold text-bg-primary'
-                                : 'bg-bg-primary text-text-muted border border-border hover:border-gold'
-                            }`}
-                          >
-                            {slot}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <p className="text-sm text-text-muted mb-2">Dinner (6:00 PM - 9:00 PM)</p>
-                      <div className="flex flex-wrap gap-2">
-                        {dinnerSlots.map((slot) => (
-                          <button
-                            key={slot}
-                            type="button"
-                            onClick={() => setFormData(prev => ({ ...prev, timeSlot: slot }))}
-                            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                              formData.timeSlot === slot
-                                ? 'bg-gold text-bg-primary'
-                                : 'bg-bg-primary text-text-muted border border-border hover:border-gold'
-                            }`}
-                          >
-                            {slot}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  {errors.timeSlot && (
-                    <p className="mt-1 text-sm text-error">{errors.timeSlot}</p>
-                  )}
-                </div>
-
-                {/* Guest Count */}
-                <div>
-                  <label className="block text-sm text-text-muted mb-2">
-                    Number of Guests
-                  </label>
-                  <div className="flex items-center gap-4">
-                    <button
-                      type="button"
-                      onClick={() => handleGuestCount(-1)}
-                      className="w-12 h-12 bg-bg-primary border border-border rounded-md flex items-center justify-center text-text-primary hover:border-gold transition-colors"
-                    >
-                      -
-                    </button>
-                    <div className="flex items-center gap-2">
-                      <Users className="text-gold" size={20} />
-                      <span className="text-xl font-semibold text-text-primary w-8 text-center">
-                        {formData.guestCount}
-                      </span>
-                      <span className="text-text-muted">guests</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleGuestCount(1)}
-                      className="w-12 h-12 bg-bg-primary border border-border rounded-md flex items-center justify-center text-text-primary hover:border-gold transition-colors"
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Step 2: Select Table */}
-          {step === 2 && (
-            <div className="bg-bg-secondary border border-border rounded-lg p-8">
-              <h2 className="text-2xl font-serif font-bold text-text-primary mb-6">
-                Select Your Table
-              </h2>
-
-              {/* Selection Summary */}
-              <div className="bg-bg-primary border border-border rounded-md p-4 mb-6">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                  <div>
-                    <span className="text-text-muted">Restaurant:</span>
-                    <p className="text-text-primary font-medium">
-                      {selectedRestaurant?.name}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-text-muted">Date:</span>
-                    <p className="text-text-primary">
-                      {format(new Date(formData.date), 'MMM d, yyyy')}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-text-muted">Time:</span>
-                    <p className="text-text-primary">{formData.timeSlot}</p>
-                  </div>
-                  <div>
-                    <span className="text-text-muted">Guests:</span>
-                    <p className="text-text-primary">{formData.guestCount}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Available Tables */}
-              {isLoadingTables ? (
-                <div className="flex justify-center py-12">
-                  <Spinner size="md" />
-                </div>
-              ) : tables.length === 0 ? (
-                <div className="text-center py-12">
-                  <AlertCircle className="mx-auto text-gold mb-4" size={48} />
-                  <h3 className="text-xl font-serif font-bold text-text-primary mb-2">
-                    No tables available
-                  </h3>
-                  <p className="text-text-muted mb-4">
-                    Try a different time or date.
-                  </p>
-                  <button
-                    onClick={handleBack}
-                    className="text-gold hover:text-gold-hover font-medium"
-                  >
-                    Go back and change selection
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
-                    {tables.map((table) => (
-                      <button
-                        key={table._id}
-                        type="button"
-                        onClick={() => setFormData(prev => ({ ...prev, tableId: table._id }))}
-                        className={`p-4 border rounded-md text-left transition-all ${
-                          formData.tableId === table._id
-                            ? 'border-gold bg-gold-light'
-                            : 'border-border bg-bg-primary hover:border-gold'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="font-semibold text-text-primary">
-                            Table {table.tableNumber}
-                          </span>
-                          {formData.tableId === table._id && (
-                            <Check className="text-gold" size={18} />
-                          )}
-                        </div>
-                        <p className="text-sm text-text-muted">
-                          {table.capacity} guests
-                        </p>
-                      </button>
+            <div>
+              {/* Restaurant selector */}
+              <div style={{ marginBottom: 16 }}>
+                <label style={labelStyle}>Restaurant</label>
+                <select
+                  value={form.restaurantId}
+                  onChange={e => setForm(f => ({ ...f, restaurantId: e.target.value, tableId: '', section: '' }))}
+                  style={{ ...inputStyle, cursor: 'pointer' }}
+                >
+                  <option value="">Select a restaurant...</option>
+                  {loadingRestaurants
+                    ? <option>Loading...</option>
+                    : restaurants.map(r => (
+                      <option key={r._id} value={r._id}>{r.name}</option>
                     ))}
-                  </div>
-                  {errors.tableId && (
-                    <p className="text-sm text-error">{errors.tableId}</p>
-                  )}
-                </>
-              )}
+                </select>
+              </div>
 
-              {/* Special Requests */}
-              <div className="mt-6">
-                <label className="block text-sm text-text-muted mb-2">
-                  Special Requests (Optional)
-                </label>
-                <textarea
-                  name="notes"
-                  value={formData.notes}
-                  onChange={handleInputChange}
-                  rows={3}
-                  placeholder="Any special occasion? Dietary requirements? Seating preferences?"
-                  className="w-full bg-bg-primary border border-border rounded-md px-4 py-3 text-text-primary placeholder-text-muted focus:border-gold focus:ring-1 focus:ring-gold-light outline-none resize-none"
+              {/* Calendar + Time side by side */}
+              <div style={{ display: 'flex', gap: 16, marginBottom: 8, flexWrap: 'wrap' }}>
+                {/* Calendar */}
+                <div style={{ flex: 1, minWidth: 240 }}>
+                  <div style={{ color: T.white, fontWeight: 600, fontSize: 14, marginBottom: 10 }}>
+                    Select Date &amp; Time
+                  </div>
+                  <CalendarPicker
+                    selected={form.date}
+                    onSelect={date => setForm(f => ({ ...f, date }))}
+                  />
+                </div>
+
+                {/* Time slots */}
+                <TimeSlotList
+                  slots={timeSlots}
+                  selected={form.timeSlot}
+                  onSelect={slot => setForm(f => ({ ...f, timeSlot: slot }))}
                 />
               </div>
+
+              <button
+                style={{ ...goldBtn, opacity: !form.restaurantId || !form.date || !form.timeSlot ? 0.5 : 1 }}
+                disabled={!form.restaurantId || !form.date || !form.timeSlot}
+                onClick={() => setStep(2)}
+              >
+                Next
+              </button>
             </div>
           )}
 
-          {/* Step 3: Confirm */}
-          {step === 3 && (
-            <div className="bg-bg-secondary border border-border rounded-lg p-8">
-              <h2 className="text-2xl font-serif font-bold text-text-primary mb-6">
-                Confirm Your Reservation
-              </h2>
+          {/* ── STEP 2: Select Table ── */}
+          {step === 2 && (
+            <div>
+              {/* Header row */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <h2 style={{ color: T.white, fontWeight: 700, fontSize: 18, margin: 0 }}>Select Table</h2>
+                {sections.length > 1 && (
+                  <select
+                    value={form.section}
+                    onChange={e => setForm(f => ({ ...f, section: e.target.value, tableId: '' }))}
+                    style={{
+                      background: T.card, border: `1px solid ${T.border}`,
+                      borderRadius: 50, padding: '6px 14px',
+                      color: T.white, fontSize: 13, cursor: 'pointer', outline: 'none',
+                    }}
+                  >
+                    {sections.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                )}
+              </div>
 
-              {/* Summary Card */}
-              <div className="bg-bg-primary border border-border rounded-lg p-6 mb-6">
-                <h3 className="text-lg font-serif font-bold text-gold mb-4">
-                  Reservation Summary
-                </h3>
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <span className="text-text-muted">Restaurant:</span>
-                    <span className="text-text-primary font-semibold text-lg">
-                      {selectedRestaurant?.name}
+              {/* Available label */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 14 }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: T.green }} />
+                <span style={{ color: T.white, fontSize: 13 }}>Available Tables</span>
+              </div>
+
+              {/* Table grid */}
+              {loadingTables ? (
+                <div style={{ textAlign: 'center', padding: 32 }}><Spinner size="md" /></div>
+              ) : tables.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 32, color: T.muted }}>
+                  No available tables for this date/time.
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 8 }}>
+                  {tables.map(table => {
+                    const isSelected = form.tableId === table._id;
+                    return (
+                      <button
+                        key={table._id}
+                        onClick={() => setForm(f => ({ ...f, tableId: table._id }))}
+                        style={{
+                          background: isSelected ? T.gold : T.input,
+                          border: `1px solid ${isSelected ? T.gold : T.border}`,
+                          borderRadius: 12, padding: '12px 14px',
+                          display: 'flex', alignItems: 'center', gap: 10,
+                          cursor: 'pointer', transition: 'all 0.15s',
+                        }}
+                      >
+                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: T.green, flexShrink: 0 }} />
+                        <span style={{
+                          color: isSelected ? '#000' : T.white,
+                          fontWeight: 700, fontSize: 13,
+                          letterSpacing: 1,
+                        }}>
+                          #TABLE {table.tableNumber}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              <button
+                style={{ ...goldBtn, opacity: !form.tableId ? 0.5 : 1 }}
+                disabled={!form.tableId}
+                onClick={() => setStep(3)}
+              >
+                Next
+              </button>
+            </div>
+          )}
+
+          {/* ── STEP 3: Reservation Details ── */}
+          {step === 3 && (
+            <div>
+              <h2 style={{ color: T.white, fontWeight: 700, fontSize: 18, margin: '0 0 20px' }}>Reservation Details</h2>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div>
+                  <label style={labelStyle}>Name</label>
+                  <input
+                    style={inputStyle}
+                    value={form.name}
+                    onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                    placeholder="Joe Daniels"
+                    onFocus={e => e.target.style.borderColor = T.gold}
+                    onBlur={e => e.target.style.borderColor = T.border}
+                  />
+                </div>
+
+                <div>
+                  <label style={labelStyle}>Phone</label>
+                  <input
+                    style={inputStyle}
+                    value={form.phone}
+                    onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+                    placeholder="+250 789 345 727"
+                    onFocus={e => e.target.style.borderColor = T.gold}
+                    onBlur={e => e.target.style.borderColor = T.border}
+                  />
+                </div>
+
+                <div>
+                  <label style={labelStyle}>Guests</label>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 20,
+                    background: T.input, borderRadius: 8, padding: '10px 20px',
+                    border: `1px solid ${T.border}`, width: 'fit-content',
+                  }}>
+                    <button
+                      onClick={() => setForm(f => ({ ...f, guests: Math.max(1, f.guests - 1) }))}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: T.gold, display: 'flex', alignItems: 'center' }}
+                    >
+                      <Minus size={18} color={T.gold} />
+                    </button>
+                    <span style={{ color: T.white, fontWeight: 700, fontSize: 18, minWidth: 20, textAlign: 'center' }}>
+                      {form.guests}
                     </span>
+                    <button
+                      onClick={() => setForm(f => ({ ...f, guests: Math.min(50, f.guests + 1) }))}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: T.gold, display: 'flex', alignItems: 'center' }}
+                    >
+                      <Plus size={18} color={T.gold} />
+                    </button>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-text-muted">Date:</span>
-                    <span className="text-text-primary">
-                      {format(new Date(formData.date), 'EEEE, MMMM d yyyy')}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-text-muted">Time:</span>
-                    <span className="text-text-primary">{formData.timeSlot}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-text-muted">Guests:</span>
-                    <span className="text-text-primary">
-                      {formData.guestCount} people
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-text-muted">Table:</span>
-                    <span className="text-text-primary">
-                      Table {selectedTable?.tableNumber} ({selectedTable?.capacity} seats)
-                    </span>
-                  </div>
-                  {formData.notes && (
-                    <div className="pt-4 border-t border-border">
-                      <span className="text-text-muted">Notes:</span>
-                      <p className="text-text-primary mt-1 italic">{formData.notes}</p>
-                    </div>
-                  )}
+                </div>
+
+                <div>
+                  <label style={labelStyle}>Special Request</label>
+                  <textarea
+                    style={{ ...inputStyle, height: 100, resize: 'none' }}
+                    value={form.notes}
+                    onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                    placeholder="Near the window please..."
+                    onFocus={e => e.target.style.borderColor = T.gold}
+                    onBlur={e => e.target.style.borderColor = T.border}
+                  />
                 </div>
               </div>
 
-              {/* Terms */}
-              <div className="bg-gold-light border border-gold rounded-md p-4 mb-6">
-                <p className="text-sm text-text-primary">
-                  By confirming this reservation, you agree to our Terms of Service.
-                  Please arrive on time. Reservations are held for 15 minutes past the booked time.
-                </p>
-              </div>
+              <button
+                style={{ ...goldBtn, opacity: submitting ? 0.6 : 1 }}
+                disabled={submitting}
+                onClick={handleSubmit}
+              >
+                {submitting ? 'Confirming...' : 'Next'}
+              </button>
             </div>
           )}
 
-          {/* Navigation Buttons */}
-          <div className="flex justify-between mt-8">
-            {step > 1 ? (
-              <button
-                type="button"
-                onClick={handleBack}
-                className="flex items-center gap-2 px-6 py-3 text-text-primary hover:text-gold transition-colors"
-              >
-                <ChevronLeft size={20} />
-                Back
-              </button>
-            ) : (
-              <div />
-            )}
-
-            {step < 3 ? (
-              <button
-                type="button"
-                onClick={handleNext}
-                className="flex items-center gap-2 px-8 py-3 bg-gold text-bg-primary font-semibold rounded-md hover:bg-gold-hover transition-colors"
-              >
-                Next
-                <ChevronRight size={20} />
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={handleSubmit}
-                disabled={isCreating}
-                className="flex items-center gap-2 px-8 py-3 bg-gold text-bg-primary font-semibold rounded-md hover:bg-gold-hover transition-colors disabled:opacity-50"
-              >
-                {isCreating ? (
-                  <>
-                    <Spinner size="sm" />
-                    Confirming...
-                  </>
-                ) : (
-                  <>
-                    <Check size={20} />
-                    Confirm Reservation
-                  </>
-                )}
-              </button>
-            )}
-          </div>
+          {/* ── STEP 4: Confirmed ── */}
+          {step === 4 && createdReservation && (
+            <ConfirmedStep
+              reservation={createdReservation}
+              displaySlot={form.timeSlot}
+              onDone={() => navigate('/reservations/my')}
+              goldBtn={goldBtn}
+            />
+          )}
         </div>
-      </section>
+      </div>
     </div>
   );
 };
+
+/* ─── Step 4 Confirmed ───────────────────────────────────── */
+function ConfirmedStep({ reservation, displaySlot, onDone, goldBtn }) {
+  const startTime = formatDisplayTime(reservation.startTime) || displaySlot;
+  const endTime = formatDisplayTime(reservation.endTime) || '';
+
+  const summaryRows = [
+    {
+      icon: <Calendar size={18} color={T.gold} />,
+      label: 'Date',
+      value: format(new Date(reservation.date), 'd MMM yyyy'),
+    },
+    {
+      icon: <Clock size={18} color={T.gold} />,
+      label: 'Time',
+      value: endTime ? `${startTime} – ${endTime}` : startTime,
+    },
+    {
+      icon: <Armchair size={18} color={T.gold} />,
+      label: 'Table',
+      value: `#TABLE ${reservation.tableId?.tableNumber || ''} (${reservation.tableId?.capacity || ''} seats)`,
+    },
+  ];
+
+  return (
+    <div style={{ textAlign: 'center' }}>
+      {/* Check icon */}
+      <div style={{
+        width: 80, height: 80, borderRadius: '50%',
+        border: `3px solid ${T.gold}`,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        margin: '0 auto 20px',
+      }}>
+        <Check size={36} color={T.gold} strokeWidth={2.5} />
+      </div>
+
+      <h2 style={{ color: T.white, fontWeight: 700, fontSize: 20, margin: '0 0 6px' }}>
+        Your Reservation is confirmed!
+      </h2>
+      <p style={{ color: T.muted, fontSize: 13, margin: '0 0 4px' }}>Booking ID</p>
+      <p style={{ color: T.white, fontWeight: 700, fontSize: 22, margin: '0 0 20px' }}>
+        #{reservation.bookingId}
+      </p>
+
+      {/* Summary card */}
+      <div style={{
+        background: '#111', borderRadius: 12,
+        border: `1px solid ${T.border}`,
+        textAlign: 'left', overflow: 'hidden',
+      }}>
+        {summaryRows.map((row, i) => (
+          <div key={i} style={{
+            display: 'flex', alignItems: 'center', gap: 12,
+            padding: '14px 18px',
+            borderBottom: i < summaryRows.length - 1 ? `1px solid ${T.border}` : 'none',
+          }}>
+            {row.icon}
+            <span style={{ color: T.white, fontSize: 14, flex: 1 }}>{row.label}</span>
+            <span style={{ color: T.muted, fontSize: 14 }}>{row.value}</span>
+          </div>
+        ))}
+      </div>
+
+      <button style={{ ...goldBtn }} onClick={onDone}>Done</button>
+    </div>
+  );
+}
 
 export default Reservations;
