@@ -20,6 +20,6 @@ router.patch('/:id/cancel', cancelMyReservation);
 
 // Restaurant owner/admin routes
 router.get('/restaurant/:restaurantId', getRestaurantReservations);
-router.patch('/:id/status', restrictTo('admin', 'customer'), updateReservationStatus);
+router.patch('/:id/status', restrictTo('admin', 'super_admin'), updateReservationStatus);
 
 export default router;
