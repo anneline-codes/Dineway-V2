@@ -25,34 +25,20 @@ const seedData = async () => {
     await Reservation.deleteMany({});
     console.log('✅ Collections cleared');
 
-    // Create Users
+    // Create Users — save individually so pre('save') hash hook runs
     console.log('👥 Creating users...');
-    const users = await User.create([
-      {
-        name: 'Super Admin',
-        email: 'superadmin@dineway.com',
-        passwordHash: 'Admin1234!',
-        role: 'super_admin',
-      },
-      {
-        name: 'Admin',
-        email: 'admin@dineway.com',
-        passwordHash: 'Admin1234!',
-        role: 'admin',
-      },
-      {
-        name: 'Cynthia',
-        email: 'cynthia@gmail.com',
-        passwordHash: 'Test1234!',
-        role: 'customer',
-      },
-      {
-        name: 'M Hotel Manager',
-        email: 'manager@mhotel.com',
-        passwordHash: 'Admin1234!',
-        role: 'restaurant_admin',
-      },
-    ]);
+    const userData = [
+      { name: 'Super Admin',    email: 'superadmin@dineway.com', passwordHash: 'Admin1234!', role: 'super_admin' },
+      { name: 'Admin',          email: 'admin@dineway.com',      passwordHash: 'Admin1234!', role: 'admin' },
+      { name: 'Cynthia',        email: 'cynthia@gmail.com',      passwordHash: 'Test1234!',  role: 'customer' },
+      { name: 'M Hotel Manager',email: 'manager@mhotel.com',     passwordHash: 'Admin1234!', role: 'restaurant_admin' },
+    ];
+    const users = [];
+    for (const u of userData) {
+      const doc = new User(u);
+      await doc.save();
+      users.push(doc);
+    }
     console.log(`✅ Created ${users.length} users`);
 
     // Create Restaurants
