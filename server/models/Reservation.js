@@ -1,6 +1,10 @@
 import mongoose from 'mongoose';
 
 const reservationSchema = new mongoose.Schema({
+  bookingId: {
+    type: String,
+    unique: true,
+  },
   userId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -23,10 +27,14 @@ const reservationSchema = new mongoose.Schema({
   timeSlot: {
     type: String,
     required: [true, 'Time slot is required'],
-    enum: [
-      '11:00', '11:30', '12:00', '12:30', '13:00', '13:30', '14:00',
-      '18:00', '18:30', '19:00', '19:30', '20:00', '20:30', '21:00', '21:30', '22:00'
-    ],
+  },
+  startTime: {
+    type: String,
+    default: '',
+  },
+  endTime: {
+    type: String,
+    default: '',
   },
   guestCount: {
     type: Number,
@@ -34,10 +42,21 @@ const reservationSchema = new mongoose.Schema({
     min: [1, 'Guest count must be at least 1'],
     max: [50, 'Guest count cannot exceed 50'],
   },
+  // Guest contact details (may differ from user account)
+  guestName: {
+    type: String,
+    default: '',
+    trim: true,
+  },
+  guestPhone: {
+    type: String,
+    default: '',
+    trim: true,
+  },
   status: {
     type: String,
-    enum: ['pending', 'confirmed', 'cancelled'],
-    default: 'pending',
+    enum: ['pending', 'confirmed', 'cancelled', 'completed'],
+    default: 'confirmed',
   },
   notes: {
     type: String,
@@ -55,8 +74,17 @@ reservationSchema.index({ userId: 1, createdAt: -1 });
 reservationSchema.index({ restaurantId: 1, date: 1, timeSlot: 1 });
 reservationSchema.index({ tableId: 1, date: 1, timeSlot: 1 });
 
+// Auto-generate bookingId before saving
+reservationSchema.pre('save', async function (next) {
+  if (!this.bookingId) {
+    const rand = Math.floor(10000 + Math.random() * 90000);
+    this.bookingId = `DW${rand}`;
+  }
+  next();
+});
+
 // Check for conflicting reservations
-reservationSchema.statics.checkAvailability = async function(restaurantId, date, timeSlot, tableId) {
+reservationSchema.statics.checkAvailability = async function (restaurantId, date, timeSlot, tableId) {
   const conflictingReservation = await this.findOne({
     restaurantId,
     date: new Date(date),
