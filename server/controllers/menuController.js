@@ -40,20 +40,12 @@ export const getRestaurantMenu = asyncHandler(async (req, res) => {
     }
   });
 
-  // If no category filter, return grouped; otherwise return flat list
-  if (category && category !== 'All') {
-    res.status(200).json({
-      success: true,
-      count: menuItems.length,
-      data: menuItems,
-    });
-  } else {
-    res.status(200).json({
-      success: true,
-      count: menuItems.length,
-      data: groupedMenu,
-    });
-  }
+  // Always return flat array for menu items (admin + client both need this)
+  res.status(200).json({
+    success: true,
+    count: menuItems.length,
+    data: menuItems,
+  });
 });
 
 // @desc    Create a new menu item
