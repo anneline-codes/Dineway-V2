@@ -23,6 +23,11 @@ const reviewSchema = new mongoose.Schema({
     minlength: [10, 'Comment must be at least 10 characters'],
     maxlength: [1000, 'Comment cannot exceed 1000 characters'],
   },
+  status: {
+    type: String,
+    enum: ['pending', 'approved', 'rejected'],
+    default: 'pending',
+  },
   createdAt: {
     type: Date,
     default: Date.now,
@@ -36,7 +41,7 @@ reviewSchema.index({ userId: 1, restaurantId: 1 }, { unique: true });
 reviewSchema.post('save', async function() {
   const Restaurant = mongoose.model('Restaurant');
   const stats = await this.constructor.aggregate([
-    { $match: { restaurantId: this.restaurantId } },
+    { $match: { restaurantId: this.restaurantId, status: 'approved' } },
     { $group: { _id: null, avgRating: { $avg: '$rating' }, count: { $sum: 1 } } },
   ]);
   
@@ -52,7 +57,7 @@ reviewSchema.post('save', async function() {
 reviewSchema.post('deleteOne', { document: true, query: false }, async function() {
   const Restaurant = mongoose.model('Restaurant');
   const stats = await this.constructor.aggregate([
-    { $match: { restaurantId: this.restaurantId } },
+    { $match: { restaurantId: this.restaurantId, status: 'approved' } },
     { $group: { _id: null, avgRating: { $avg: '$rating' }, count: { $sum: 1 } } },
   ]);
   
