@@ -2,36 +2,29 @@ import Table from '../models/Table.js';
 import Restaurant from '../models/Restaurant.js';
 import Reservation from '../models/Reservation.js';
 import asyncHandler from 'express-async-handler';
+import { io } from '../index.js';
 
-// @desc    Get all tables for a restaurant
+// @desc    Get all tables for a restaurant (with live status)
 // @route   GET /api/v1/tables/restaurant/:restaurantId
 // @access  Public
 export const getRestaurantTables = asyncHandler(async (req, res) => {
   const { restaurantId } = req.params;
 
-  // Check if restaurant exists
   const restaurant = await Restaurant.findById(restaurantId);
   if (!restaurant) {
-    return res.status(404).json({
-      success: false,
-      error: 'Restaurant not found',
-    });
+    return res.status(404).json({ success: false, error: 'Restaurant not found' });
   }
 
   const tables = await Table.find({ restaurantId }).sort({ tableNumber: 1 });
 
-  res.status(200).json({
-    success: true,
-    count: tables.length,
-    data: tables,
-  });
+  res.status(200).json({ success: true, count: tables.length, data: tables });
 });
 
 // @desc    Get available tables for a specific date and time
-// @route   GET /api/v1/tables/available?restaurantId=&date=&timeSlot=
+// @route   GET /api/v1/tables/available?restaurantId=&date=&timeSlot=&section=
 // @access  Public
 export const getAvailableTables = asyncHandler(async (req, res) => {
-  const { restaurantId, date, timeSlot, guestCount } = req.query;
+  const { restaurantId, date, timeSlot, guestCount, section } = req.query;
 
   if (!restaurantId || !date || !timeSlot) {
     return res.status(400).json({
@@ -40,15 +33,15 @@ export const getAvailableTables = asyncHandler(async (req, res) => {
     });
   }
 
-  // Get all tables for the restaurant
-  let tables = await Table.find({ restaurantId, isAvailable: true });
+  const filter = { restaurantId, isAvailable: true };
+  if (section) filter.section = section;
 
-  // Filter by guest count if provided
+  let tables = await Table.find(filter);
+
   if (guestCount) {
-    tables = tables.filter(table => table.capacity >= parseInt(guestCount));
+    tables = tables.filter(t => t.capacity >= parseInt(guestCount));
   }
 
-  // Get booked tables for the date and time
   const bookedReservations = await Reservation.find({
     restaurantId,
     date: new Date(date),
@@ -56,104 +49,82 @@ export const getAvailableTables = asyncHandler(async (req, res) => {
     status: { $in: ['pending', 'confirmed'] },
   }).select('tableId');
 
-  const bookedTableIds = bookedReservations.map(res => res.tableId.toString());
+  const bookedTableIds = bookedReservations.map(r => r.tableId.toString());
+  const availableTables = tables.filter(t => !bookedTableIds.includes(t._id.toString()));
 
-  // Filter out booked tables
-  const availableTables = tables.filter(
-    table => !bookedTableIds.includes(table._id.toString())
-  );
+  res.status(200).json({ success: true, count: availableTables.length, data: availableTables });
+});
 
-  res.status(200).json({
-    success: true,
-    count: availableTables.length,
-    data: availableTables,
-  });
+// @desc    Get distinct sections for a restaurant
+// @route   GET /api/v1/tables/sections/:restaurantId
+// @access  Public
+export const getRestaurantSections = asyncHandler(async (req, res) => {
+  const { restaurantId } = req.params;
+  const sections = await Table.distinct('section', { restaurantId });
+  res.status(200).json({ success: true, data: sections });
 });
 
 // @desc    Create a new table
 // @route   POST /api/v1/tables
-// @access  Private (Admin only)
+// @access  Private (Admin / restaurant_admin)
 export const createTable = asyncHandler(async (req, res) => {
   const { restaurantId } = req.body;
 
-  // Check if restaurant exists
   const restaurant = await Restaurant.findById(restaurantId);
   if (!restaurant) {
-    return res.status(404).json({
-      success: false,
-      error: 'Restaurant not found',
-    });
+    return res.status(404).json({ success: false, error: 'Restaurant not found' });
   }
 
-  // Check if user is admin
-  if (req.user.role !== 'admin') {
-    return res.status(403).json({
-      success: false,
-      error: 'Only admins can create tables',
-    });
+  const allowedRoles = ['admin', 'restaurant_admin', 'restaurant_manager'];
+  if (!allowedRoles.includes(req.user.role)) {
+    return res.status(403).json({ success: false, error: 'Not authorized to create tables' });
   }
 
   const table = await Table.create(req.body);
 
-  res.status(201).json({
-    success: true,
-    data: table,
-  });
+  // Notify admin room of new table
+  io.to(`restaurant:${restaurantId}`).emit('table:created', { table });
+
+  res.status(201).json({ success: true, data: table });
 });
 
 // @desc    Update a table
 // @route   PUT /api/v1/tables/:id
-// @access  Private (Admin only)
+// @access  Private (Admin / restaurant_admin)
 export const updateTable = asyncHandler(async (req, res) => {
-  if (req.user.role !== 'admin') {
-    return res.status(403).json({
-      success: false,
-      error: 'Only admins can update tables',
-    });
+  const allowedRoles = ['admin', 'restaurant_admin', 'restaurant_manager'];
+  if (!allowedRoles.includes(req.user.role)) {
+    return res.status(403).json({ success: false, error: 'Not authorized to update tables' });
   }
 
-  const table = await Table.findByIdAndUpdate(
-    req.params.id,
-    req.body,
-    { new: true, runValidators: true }
-  );
+  const table = await Table.findByIdAndUpdate(req.params.id, req.body, {
+    new: true,
+    runValidators: true,
+  });
 
   if (!table) {
-    return res.status(404).json({
-      success: false,
-      error: 'Table not found',
-    });
+    return res.status(404).json({ success: false, error: 'Table not found' });
   }
 
-  res.status(200).json({
-    success: true,
-    data: table,
-  });
+  io.to(`restaurant:${table.restaurantId}`).emit('table:updated', { table });
+
+  res.status(200).json({ success: true, data: table });
 });
 
 // @desc    Delete a table
 // @route   DELETE /api/v1/tables/:id
 // @access  Private (Admin only)
 export const deleteTable = asyncHandler(async (req, res) => {
-  if (req.user.role !== 'admin') {
-    return res.status(403).json({
-      success: false,
-      error: 'Only admins can delete tables',
-    });
+  const allowedRoles = ['admin', 'restaurant_admin', 'restaurant_manager'];
+  if (!allowedRoles.includes(req.user.role)) {
+    return res.status(403).json({ success: false, error: 'Not authorized to delete tables' });
   }
 
   const table = await Table.findByIdAndDelete(req.params.id);
 
   if (!table) {
-    return res.status(404).json({
-      success: false,
-      error: 'Table not found',
-    });
+    return res.status(404).json({ success: false, error: 'Table not found' });
   }
 
-  res.status(200).json({
-    success: true,
-    data: {},
-    message: 'Table deleted successfully',
-  });
+  res.status(200).json({ success: true, data: {}, message: 'Table deleted successfully' });
 });
