@@ -25,8 +25,13 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['admin', 'customer'],
+    enum: ['super_admin', 'admin', 'restaurant_admin', 'restaurant_manager', 'hotel_manager', 'customer'],
     default: 'customer',
+  },
+  status: {
+    type: String,
+    enum: ['active', 'inactive', 'banned'],
+    default: 'active',
   },
   avatar: {
     type: String,
@@ -34,6 +39,11 @@ const userSchema = new mongoose.Schema({
   },
   refreshToken: {
     type: String,
+    default: null,
+  },
+  restaurantId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Restaurant',
     default: null,
   },
   createdAt: {
