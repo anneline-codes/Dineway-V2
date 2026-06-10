@@ -3,7 +3,11 @@ import User from '../models/User.js';
 import { generateAccessToken, generateRefreshToken } from '../utils/generateToken.js';
 import asyncHandler from 'express-async-handler';
 
-// @desc    Register a new user
+const cookieOptions = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
+};
 // @route   POST /api/v1/auth/register
 // @access  Public
 export const register = asyncHandler(async (req, res) => {
@@ -36,10 +40,8 @@ export const register = asyncHandler(async (req, res) => {
 
   // Set refresh token in httpOnly cookie
   res.cookie('refreshToken', refreshToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    ...cookieOptions,
+    maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 
   res.status(201).json({
@@ -99,18 +101,14 @@ export const login = asyncHandler(async (req, res) => {
 
   // Set refresh token in httpOnly cookie
   res.cookie('refreshToken', refreshToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    ...cookieOptions,
+    maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 
-  // Set access token in cookie (optional, for convenience)
+  // Set access token in cookie
   res.cookie('accessToken', accessToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
-    maxAge: 15 * 60 * 1000, // 15 minutes
+    ...cookieOptions,
+    maxAge: 15 * 60 * 1000,
   });
 
   res.status(200).json({
@@ -176,10 +174,8 @@ export const refreshToken = asyncHandler(async (req, res) => {
 
     // Set new access token in cookie
     res.cookie('accessToken', accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 15 * 60 * 1000, // 15 minutes
+      ...cookieOptions,
+      maxAge: 15 * 60 * 1000,
     });
 
     res.status(200).json({
