@@ -17,6 +17,21 @@ const tableSchema = new mongoose.Schema({
     min: [1, 'Capacity must be at least 1'],
     max: [50, 'Capacity cannot exceed 50'],
   },
+  section: {
+    type: String,
+    default: 'Main Hall',
+    trim: true,
+  },
+  shape: {
+    type: String,
+    enum: ['square', 'circle'],
+    default: 'square',
+  },
+  status: {
+    type: String,
+    enum: ['available', 'reserved', 'occupied'],
+    default: 'available',
+  },
   isAvailable: {
     type: Boolean,
     default: true,
