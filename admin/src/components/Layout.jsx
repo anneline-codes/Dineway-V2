@@ -1,5 +1,5 @@
 import { Outlet } from 'react-router-dom';
-import Sidebar from './Sidebar' ;
+import Sidebar from './Sidebar';
 import { User } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 
