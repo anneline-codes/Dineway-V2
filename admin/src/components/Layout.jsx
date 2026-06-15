@@ -1,7 +1,7 @@
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
-import { User } from 'lucide-react' ;
-import useAuthStore from '../store/authStore' ;
+import { User } from 'lucide-react';
+import useAuthStore from '../store/authStore';
 
 export default function Layout() {
   const { user } = useAuthStore();
