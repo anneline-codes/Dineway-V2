@@ -12,7 +12,6 @@ export default function Pagination({ page, pages, onPage }) {
     </div>
   );
 }
-
 const btnStyle = (active) => ({
   padding: '5px 10px', borderRadius: 6,
   border: `1px solid ${active ? '#C9A84C' : '#e2e8f0'}`,
